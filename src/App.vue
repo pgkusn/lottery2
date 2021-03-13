@@ -2,30 +2,31 @@
     <div class="container">
         <div class="lottoContainer">
             <div class="title">Lottery Game</div>
-            <div class="lottoMainPanel">
+            <div class="lottoMainPanel" v-if="unselectedUsers.length">
                 <div class="panelContainer">
-                    <div class="imgBox" :style="{backgroundImage:`url(https://pbs.twimg.com/media/C8PDDBMUwAAuid4.jpg)`}">
-                        <div class="userName">我是玩家1</div>
+                    <div class="imgBox" :style="{ backgroundImage: `url(${showUser.img})` }">
+                        <div class="userName">我是玩家 {{ showUser.id }}</div>
                     </div>
                     <div class="btnBox">
-                        <div class="statBtn">開始</div>
-                        <!-- <div class="statBtn">停止</div>
-                        <div class="statBtn">抽選中...還剩 ? 人</div> -->
+                        <div class="statBtn" v-if="!drawing" @click="start">{{ started ? '停止' : '開始'}}</div>
+                        <div class="statBtn" v-else>抽選中...還剩 {{ quota - selectedUsers.length }} 人</div>
                     </div>
-                    <div class="title">設定中獎人數</div>
-                    <div class="winnerSumBox">
-                        <div class="option minus"></div>
-                        <div class="winPlayerSum">1</div>
-                        <div class="option plus"></div>
-                    </div>
+                    <template v-if="!drawing">
+                        <div class="title">設定中獎人數</div>
+                        <div class="winnerSumBox">
+                            <div class="option minus" @click="setQuota(-1)"></div>
+                            <div class="winPlayerSum">{{ quota }}</div>
+                            <div class="option plus" @click="setQuota(1)"></div>
+                        </div>
+                    </template>
                 </div>
             </div>
             <div class="lottoWinners">
                 <div class="title">中獎名單</div>
                 <div class="winnerLists">
-                    <div class="item">
-                        <div class="imgBox" :style="{backgroundImage:`url(https://pbs.twimg.com/media/C8PDDBMUwAAuid4.jpg)`}"></div>
-                        <div class="userName">我是玩家1</div>
+                    <div class="item" v-for="user in selectedUsers" :key="user.id">
+                        <div class="imgBox" :style="{ backgroundImage: `url(${user.img})` }"></div>
+                        <div class="userName">我是玩家 {{ user.id }}</div>
                     </div>
                 </div>
             </div>
@@ -34,8 +35,117 @@
 </template>
 
 <script>
+import { computed, onMounted, ref } from 'vue';
+import { useStore } from 'vuex';
+
 export default {
-    name: 'App'
+    name: 'App',
+    setup () {
+        const store = useStore();
+
+        const users = ref([]);
+        const selectedUsers = computed(() => users.value.filter(user => user.selected).sort((a, b) => a.index - b.index));
+        const unselectedUsers = computed(() => users.value.filter(user => !user.selected));
+        const showUser = computed(() => (selectedCount.value === quota.value ? lastUser.value : currentUser.value));
+        const currentIndex = ref(0);
+        const currentUser = computed(() => unselectedUsers.value[currentIndex.value]);
+        const started = ref(false);
+        const drawing = ref(false);
+        const quota = ref(3);
+        const selectedCount = ref(0);
+        const lastUser = ref(null);
+        let timerDelay = 100;
+
+        const start = () => {
+            if (drawing.value) return;
+
+            // 點選停止開始抽籤
+            if (started.value) {
+                started.value = false;
+                drawing.value = true;
+                return;
+            }
+
+            // 點選開始
+            if (selectedCount.value === quota.value) {
+                reset();
+            }
+            started.value = true;
+            setCurrentIndex();
+        };
+
+        const reset = () => {
+            users.value.forEach(user => (user.selected = false));
+            selectedCount.value = 0;
+            currentIndex.value = 0;
+            lastUser.value = null;
+            timerDelay = 100;
+        };
+
+        const setCurrentIndex = () => {
+            currentIndex.value = (currentIndex.value + 1) % unselectedUsers.value.length;
+            timerDelay = drawing.value ? timerDelay * 1.1 : timerDelay;
+            if (timerDelay > 500) {
+                selectedCount.value++;
+                lastUser.value = currentUser.value;
+                setTimeout(draw, 1000);
+                return;
+            }
+            setTimeout(setCurrentIndex, timerDelay);
+        };
+
+        const draw = () => {
+            selectUser(currentUser.value.id);
+            if (selectedUsers.value.length === quota.value) {
+                drawing.value = false;
+                return;
+            }
+            timerDelay = 100;
+            setCurrentIndex();
+        };
+
+        const selectUser = id => {
+            users.value.forEach(user => {
+                if (user.id === id) {
+                    user.selected = true;
+                    user.index = selectedUsers.value.length;
+                }
+            });
+        };
+
+        const setQuota = value => {
+            if (selectedCount.value === quota.value) {
+                reset();
+            }
+
+            const result = quota.value + value;
+            if (result > 0 && result < 4) {
+                quota.value += value;
+            }
+        };
+
+        onMounted(async () => {
+            const result = await store.dispatch('getUsers');
+            users.value = result.map(({ id, img, name }) => ({
+                id,
+                img,
+                name,
+                selected: false
+            }));
+        });
+
+        return {
+            selectedUsers,
+            unselectedUsers,
+            start,
+            started,
+            drawing,
+            selectedCount,
+            quota,
+            setQuota,
+            showUser
+        };
+    }
 };
 </script>
 
